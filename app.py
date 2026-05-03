@@ -1,205 +1,140 @@
 import streamlit as st
-import json
-from datetime import datetime
+from streamlit_drawable_canvas import st_canvas
 from fpdf import FPDF
+from PIL import Image
 import io
+import json
+import tempfile
+import os
+from datetime import datetime
 
 # CONFIGURACIÓN DE PÁGINA
-st.set_page_config(
-    page_title="S.I.V. - Bloque 4: Gestión de Testigos",
-    layout="wide"
-)
+st.set_page_config(page_title="S.I.V. - Bloque 4: DECLARACIÓN DE TESTIGO", layout="wide")
 
 # --- SIDEBAR ---
 with st.sidebar:
     st.header("Oficial Interviniente")
-    # CORRECCIÓN: Ahora es editable (disabled=False)
-    interviniente = st.text_input(
-        "Rango y Nombre",
-        value="SUB COMISARIO CASTAÑEDA JUAN",
-        disabled=False
-    )
+    interviniente = st.text_input("Rango y Nombre", value="SUB COMISARIO CASTAÑEDA JUAN")
+    dependencia = st.text_input("Dependencia", value="SUBCOMISARIA ZAVALLA - UR II")
 
-    st.markdown("---")
-    st.subheader("Lugar del Hecho")
-    lugar = st.text_input(
-        "Dirección",
-        placeholder="EJ: SARMIENTO 3361, ZAVALLA"
-    )
-
-    st.subheader("Hora del Hecho")
-    hora_hecho = st.text_input("HH:MM", placeholder="08:00")
-
-def limpiar_texto_pdf(texto):
-    """Limpia caracteres especiales para evitar errores en FPDF"""
+def limpiar_texto(texto):
     if texto is None: return ""
-    reemplazos = {
-        "“": '"', "”": '"', "‘": "'", "’": "'",
-        "–": "-", "—": "-", "…": "...", "°": "Nro.",
-        "ñ": "n", "Ñ": "N", "á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u",
-        "Á": "A", "É": "E", "Í": "I", "Ó": "O", "Ú": "U"
-    }
-    texto = str(texto)
-    for original, reemplazo in reemplazos.items():
-        texto = texto.replace(original, reemplazo)
-    return texto
+    r = {"ñ": "n", "Ñ": "N", "á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u", "°": "Nro."}
+    for k, v in r.items(): texto = str(texto).replace(k, v)
+    return texto.upper()
 
-def generar_pdf_bytes(datos_acumulados, interviniente, lugar, hora_hecho):
-    """Genera PDF con formato legal judicial real"""
+def generar_pdf_testigo(datos, firma_img):
     pdf = FPDF(orientation='P', unit='mm', format='A4')
     pdf.set_margins(left=25, top=20, right=15)
-    pdf.set_auto_page_break(auto=True, margin=20)
+    pdf.add_page()
+
+    # ENCABEZADO
+    pdf.set_font("Arial", "B", 10)
+    pdf.cell(0, 5, "UR II ROSARIO - " + dependencia, ln=True, align="C")
+    pdf.ln(5)
     
-    fecha_actual = datetime.now().strftime("%d/%m/%Y")
-    hora_documento = hora_hecho if hora_hecho else datetime.now().strftime("%H:%M")
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(0, 10, "ACTA DE DECLARACION DE TESTIGO", ln=True, align="C")
+    pdf.ln(10)
+
+    # CUADRO DE FILIACIÓN DEL TESTIGO
+    pdf.set_font("Arial", "B", 11)
+    pdf.cell(0, 8, "I. DATOS DEL TESTIGO:", ln=True)
+    pdf.set_font("Arial", "", 11)
     
-    hay_actas = False
+    f = datos["filiacion"]
+    pdf.cell(50, 8, "Nombre y Apellido:", 1); pdf.cell(0, 8, limpiar_texto(f['nombre']), 1, 1)
+    pdf.cell(50, 8, "D.N.I. / F. Nac:", 1); pdf.cell(0, 8, f"{f['dni']} | {f['fecha_nac']}", 1, 1)
+    pdf.cell(50, 8, "Telefono / Correo:", 1); pdf.cell(0, 8, f"{f['telefono']} | {f['correo']}", 1, 1)
+    pdf.multi_cell(0, 8, limpiar_texto(f"Domicilio: {f['domicilio']}"), 1)
+    pdf.ln(10)
 
-    for t_id, t_info in datos_acumulados.items():
-        if t_info["declara"] == "SI":
-            hay_actas = True
-            pdf.add_page()
+    # RELATO DEL TESTIGO
+    pdf.set_font("Arial", "B", 11)
+    pdf.cell(0, 8, "II. TESTIMONIO DE LOS HECHOS:", ln=True)
+    pdf.set_font("Arial", "", 11)
+    pdf.multi_cell(0, 10, limpiar_texto(datos["contenido"]), 0, 'J')
 
-            # ENCABEZADO FORMAL POLICIAL
-            pdf.set_font("Arial", "B", 8)
-            pdf.cell(0, 4, "POLICIA DE LA PROVINCIA", ln=True, align="L")
-            pdf.cell(0, 4, "UNIDAD REGIONAL II - ROSARIO", ln=True, align="L")
-            pdf.cell(0, 4, "SUBCOMISARIA ZAVALLA", ln=True, align="L")
-            pdf.ln(8)
+    # FIRMAS
+    pdf.ln(25)
+    y_pos = pdf.get_y()
+    
+    if firma_img is not None:
+        img = Image.fromarray(firma_img.astype('uint8'), 'RGBA')
+        blanco = Image.new("RGB", img.size, (255, 255, 255))
+        blanco.paste(img, mask=img.split()[3])
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+            blanco.save(tmp.name, format="JPEG")
+            pdf.image(tmp.name, x=30, y=y_pos - 15, w=50)
+            os.unlink(tmp.name)
 
-            pdf.set_font("Arial", "B", 14)
-            pdf.cell(0, 10, "ACTA DE ENTREVISTA TECNICA", ln=True, align="C")
-            pdf.ln(5)
+    pdf.cell(85, 8, "------------------------------------", 0, 0, "C")
+    pdf.cell(85, 8, "------------------------------------", 0, 1, "C")
+    pdf.cell(85, 5, "FIRMA TESTIGO", 0, 0, "C")
+    pdf.cell(85, 5, "FIRMA INTERVINIENTE", 0, 1, "C")
 
-            pdf.set_font("Arial", "", 11)
-            pdf.multi_cell(0, 7, limpiar_texto_pdf(
-                f"En Zavalla, Provincia de Santa Fe, a los {datetime.now().strftime('%d')} dias del mes de "
-                f"{datetime.now().strftime('%B')} del año {datetime.now().strftime('%Y')}, siendo las "
-                f"{hora_documento} horas, ante el interviniente {interviniente}, comparece la persona de:"
-            ))
-            pdf.ln(5)
-
-            # FILIACIÓN (TABLA)
-            pdf.set_font("Arial", "B", 11)
-            pdf.cell(0, 8, "I. DATOS FILIATORIOS DEL INTERESADO:", ln=True)
-            
-            pdf.set_font("Arial", "", 11)
-            f = t_info["filiacion"]
-            pdf.cell(50, 7, "Apellido y Nombres:", 1, 0); pdf.cell(0, 7, limpiar_texto_pdf(f['nombre']), 1, 1)
-            pdf.cell(50, 7, "D.N.I. / Sexo:", 1, 0); pdf.cell(0, 7, limpiar_texto_pdf(f"{f['dni']} | {f['sexo']}"), 1, 1)
-            pdf.cell(50, 7, "F. Nacimiento:", 1, 0); pdf.cell(0, 7, limpiar_texto_pdf(f['fecha_nacimiento']), 1, 1)
-            pdf.cell(50, 7, "Nacionalidad / E. Civil:", 1, 0); pdf.cell(0, 7, limpiar_texto_pdf(f"{f['nacionalidad']} | {f['estado_civil']}"), 1, 1)
-            pdf.cell(50, 7, "Ocupacion:", 1, 0); pdf.cell(0, 7, limpiar_texto_pdf(f"{f['ocupacion']}"), 1, 1)
-            pdf.cell(50, 7, "Contacto:", 1, 0); pdf.cell(0, 7, limpiar_texto_pdf(f"{f['telefono']} | {f['correo']}"), 1, 1)
-            pdf.multi_cell(0, 7, limpiar_texto_pdf(f"Domicilio Real: {f['domicilio']}"), 1)
-            pdf.ln(8)
-
-            # RELATO
-            pdf.set_font("Arial", "B", 11)
-            pdf.cell(0, 8, "II. RELATO DE LA ENTREVISTA:", ln=True)
-            pdf.set_font("Arial", "", 11)
-            contenido = limpiar_texto_pdf(t_info["contenido"])
-            pdf.multi_cell(0, 10, contenido if contenido else "SIN DECLARACION REGISTRADA", 0, 'J')
-
-            # FIRMAS
-            if pdf.get_y() > 240: pdf.add_page(); pdf.ln(20)
-            else: pdf.ln(30)
-            pdf.cell(90, 8, "------------------------------------", 0, 0, "C")
-            pdf.cell(90, 8, "------------------------------------", 0, 1, "C")
-            pdf.cell(90, 6, "FIRMA ENTREVISTADO", 0, 0, "C")
-            pdf.cell(90, 6, "FIRMA INTERVINIENTE", 0, 1, "C")
-
-    return pdf.output(dest="S").encode("latin-1", errors="replace") if hay_actas else None
+    return pdf.output(dest="S").encode("latin-1", errors="replace")
 
 def main():
-    st.title("🚓 S.I.V. - Bloque 4: GESTIÓN DE TESTIGOS")
-    st.caption("Autor: Sub Comisario CASTAÑEDA Juan")
-    st.markdown("---")
-
-    if "lista_testigos" not in st.session_state:
-        st.session_state.lista_testigos = [1]
-
-    datos_acumulados = {}
-
-    for t_num in st.session_state.lista_testigos:
-        with st.expander(f"🆔 {t_num}. DATOS FILIATORIOS DEL TESTIGO", expanded=True):
-            c1, c2, c3 = st.columns([2, 1, 1])
-            nombre = c1.text_input("Apellido y Nombres", key=f"n_{t_num}").upper()
-            dni = c2.text_input("DNI", key=f"d_{t_num}")
-            sexo = c3.selectbox("Sexo", ["MASCULINO", "FEMENINO", "OTRO"], key=f"s_{t_num}")
-
-            c4, c5, c6 = st.columns([1, 1, 1])
-            nacionalidad = c4.text_input("Nacionalidad", value="ARGENTINA", key=f"na_{t_num}").upper()
-            estado_civil = c5.selectbox("Estado Civil", ["SOLTERO/A", "CASADO/A", "DIVORCIADO/A", "VIUDO/A", "CONCUBINO/A"], key=f"ec_{t_num}")
-            
-            # CORRECCIÓN: Formato AR y sin límites de año
-            fecha_nacimiento = c6.date_input(
-                "Fecha de Nacimiento",
-                value=None,
-                min_value=datetime(1920, 1, 1),
-                max_value=datetime.now(),
-                format="DD/MM/YYYY",
-                key=f"fn_{t_num}"
-            )
-
-            c7, c8, c9 = st.columns([1, 1, 1])
-            ocupacion = c7.text_input("Ocupación", key=f"oc_{t_num}").upper()
-            telefono = c8.text_input("Teléfono Celular", key=f"te_{t_num}")
-            correo = c9.text_input("Correo Electrónico", key=f"ma_{t_num}")
-            domicilio = st.text_input("Domicilio Real", key=f"do_{t_num}").upper()
-
-        st.subheader(f"✍️ {t_num}. Relato del Testigo")
-        declara = st.radio(f"¿El testigo {t_num} presta declaración?", ["NO", "SI"], key=f"dec_{t_num}", horizontal=True)
-
-        relato_final = ""
-        if declara == "SI":
-            relato_espontaneo = st.text_area("Relato del hecho:", key=f"re_{t_num}", height=120)
-            if st.button(f"✨ Pulir Relato T{t_num}", key=f"pulir_{t_num}"):
-                texto_pulido = (
-                    "QUE EN LA FECHA, MANIFIESTA QUE: "
-                    f"{relato_espontaneo.upper()}. "
-                    "SE OBSERVA EL DESMONTE DE PERNOS Y BISAGRAS MEDIANTE EL USO DE HERRAMIENTAS, "
-                    "ACCIÓN DIRIGIDA AL DESPRENDIMIENTO Y APODERAMIENTO DE LA PIEZA DE BRONCE, "
-                    "VENCIENDO LA SEGURIDAD MECÁNICA DEL ELEMENTO."
-                )
-                st.session_state[f"ia_out_{t_num}"] = texto_pulido
-
-            relato_final = st.text_area("Relato Procesado:", value=st.session_state.get(f"ia_out_{t_num}", ""), key=f"rip_{t_num}", height=150)
-
-        # Guardado de datos incluyendo la fecha formateada
-        f_nac_str = fecha_nacimiento.strftime("%d/%m/%Y") if fecha_nacimiento else "S/D"
-        datos_acumulados[f"testigo_{t_num}"] = {
-            "filiacion": {
-                "nombre": nombre, "dni": dni, "sexo": sexo,
-                "nacionalidad": nacionalidad, "estado_civil": estado_civil,
-                "fecha_nacimiento": f_nac_str, "ocupacion": ocupacion,
-                "telefono": telefono, "correo": correo, "domicilio": domicilio
-            },
-            "declara": declara,
-            "contenido": relato_final
-        }
-
-    # Controles dinámicos
-    col_add, col_del = st.columns(2)
-    if col_add.button("➕ AGREGAR TESTIGO"):
-        st.session_state.lista_testigos.append(len(st.session_state.lista_testigos) + 1)
-        st.rerun()
-    if len(st.session_state.lista_testigos) > 1 and col_del.button("🗑️ QUITAR ÚLTIMO"):
-        st.session_state.lista_testigos.pop()
-        st.rerun()
-
-    # DESCARGAS
-    st.subheader("💾 Finalizar y Descargar")
-    pdf_data = generar_pdf_bytes(datos_acumulados, interviniente, lugar, hora_hecho)
+    st.title("🚓 S.I.V. - Bloque 4: TESTIGO")
     
-    cj1, cj2 = st.columns(2)
-    with cj1:
-        st.download_button("📥 JSON PARA ACTANTE", data=json.dumps(datos_acumulados, indent=4, ensure_ascii=False), 
-                           file_name=f"testigos_{datetime.now().strftime('%d%m%Y')}.json", mime="application/json")
-    with cj2:
-        if pdf_data:
-            st.download_button("📄 DESCARGAR ACTAS EN PDF", data=pdf_data, 
-                               file_name=f"Actas_Testigos_{datetime.now().strftime('%H%M')}.pdf", mime="application/pdf")
+    with st.expander("👤 DATOS FILIATORIOS DEL TESTIGO", expanded=True):
+        c1, c2 = st.columns([2, 1])
+        nombre = c1.text_input("Apellido y Nombres").upper()
+        dni = c2.text_input("DNI")
+        
+        c3, c4 = st.columns(2)
+        telefono = c3.text_input("Teléfono de Contacto")
+        correo = c4.text_input("Correo Electrónico")
+        
+        c5, c6 = st.columns([1, 2])
+        fecha_nac = c5.text_input("Fecha de Nacimiento")
+        domicilio = c6.text_input("Domicilio Real")
+
+    st.subheader("✍️ Declaración Testimonial")
+    relato = st.text_area("El testigo manifiesta que:", height=200)
+
+    st.markdown("---")
+    st.subheader("🖊️ FIRMA DEL TESTIGO")
+    canvas_testigo = st_canvas(
+        fill_color="rgba(255, 255, 255, 1)",
+        stroke_width=3,
+        stroke_color="#000000",
+        background_color="#FFFFFF",
+        height=150,
+        width=500,
+        drawing_mode="freedraw",
+        key="canvas_testigo",
+    )
+
+    datos_json = {
+        "filiacion": {
+            "nombre": nombre, "dni": dni, "telefono": telefono, 
+            "correo": correo, "fecha_nac": fecha_nac, "domicilio": domicilio
+        },
+        "contenido": relato
+    }
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.download_button(
+            label="📥 EXPORTAR JSON PARA ACTANTE",
+            data=json.dumps(datos_json, indent=4, ensure_ascii=False),
+            file_name=f"testigo_{dni}.json",
+            mime="application/json"
+        )
+    with col2:
+        if st.button("💾 GENERAR PDF TESTIGO"):
+            if canvas_testigo.image_data is not None and nombre:
+                pdf_bytes = generar_pdf_testigo(datos_json, canvas_testigo.image_data)
+                st.download_button(
+                    label="📄 DESCARGAR ACTA TESTIGO",
+                    data=pdf_bytes,
+                    file_name=f"Acta_Testigo_{dni}.pdf",
+                    mime="application/pdf"
+                )
+            else:
+                st.warning("Se requiere firma y nombre del testigo.")
 
 if __name__ == "__main__":
     main()

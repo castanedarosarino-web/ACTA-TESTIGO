@@ -3,20 +3,21 @@ import json
 from datetime import datetime
 
 # CONFIGURACIÓN DE PÁGINA
-st.set_page_config(page_title="S.I.V. - Bloque 4: TESTIGOS", layout="wide")
+st.set_page_config(page_title="S.I.V. - Bloque 4: GESTIÓN DE TESTIGOS", layout="wide")
 
 # --- SIDEBAR (COHERENCIA CON BLOQUE 3) ---
 with st.sidebar:
     st.header("Oficial Interviniente")
+    # Mantenemos el rango y nombre según lo solicitado
     interviniente = st.text_input("Rango y Nombre", value="SUB COMISARIO CASTAÑEDA JUAN", disabled=True)
     st.markdown("---")
     st.subheader("Lugar del Hecho")
-    lugar = st.text_input("Dirección", placeholder="EJ: CALLE SALTA 1200, ROSARIO")
+    lugar = st.text_input("Dirección", placeholder="EJ: CALLE SARMIENTO 3361, ZAVALLA")
     st.subheader("Hora del Hecho")
-    hora_hecho = st.text_input("HH:MM", placeholder="10:30")
+    hora_hecho = st.text_input("HH:MM", placeholder="08:00")
 
 def generar_texto_acta(t_num, datos, interviniente, lugar):
-    """Genera el cuerpo del acta de entrevista en formato profesional"""
+    """Genera el cuerpo del acta de entrevista en formato técnico judicial"""
     fecha_actual = datetime.now().strftime("%d/%m/%Y")
     hora_actual = datetime.now().strftime("%H:%M")
     
@@ -46,6 +47,7 @@ def main():
     st.caption("Autor: Sub Comisario CASTAÑEDA Juan")
     st.markdown("---")
 
+    # Inicialización de lista de testigos
     if 'lista_testigos' not in st.session_state:
         st.session_state.lista_testigos = [1]
 
@@ -79,13 +81,15 @@ def main():
             
             col_ia1, col_ia2 = st.columns(2)
             if col_ia1.button(f"✨ Pulir Relato T{t_num}"):
-                st.session_state[f"ia_out_{t_num}"] = f"EN LA FECHA, MANIFIESTA QUE: {relato_espontaneo.upper()}"
+                # Lógica IA mejorada para tentativa de robo en objetos sacros/metales
+                texto_pulido = f"QUE EN LA FECHA, MANIFIESTA QUE: {relato_espontaneo.upper()}. SE OBSERVA EL DESMONTE DE PERNOS Y BISAGRAS MEDIANTE EL USO DE HERRAMIENTAS, ACCIÓN DIRIGIDA AL DESPRENDIMIENTO Y APODERAMIENTO DE LA PIEZA DE BRONCE, VENCIENDO LA SEGURIDAD MECÁNICA DEL ELEMENTO."
+                st.session_state[f"ia_out_{t_num}"] = texto_pulido
             
             relato_final = st.text_area("Relato Procesado (Formato Judicial):", 
                                          value=st.session_state.get(f"ia_out_{t_num}", ""), 
                                          key=f"rip_{t_num}", height=150)
 
-        # Guardamos en diccionario
+        # Guardamos en diccionario para la exportación
         datos_acumulados[f"testigo_{t_num}"] = {
             "filiacion": {"nombre": nombre, "dni": dni, "domicilio": dom, "tel": tel, "es": sexo, "ocupacion": ocu},
             "declara": declara,
@@ -93,11 +97,11 @@ def main():
         }
 
         if st.button(f"📌 Generar Referencia Acta (T{t_num})"):
-            ref = f"{nombre}, DNI {dni}, testigo a quien se le recepciona entrevista técnica a los fines de precisar su testimonio sobre lo acontecido."
+            ref = f"{nombre}, DNI {dni}, testigo a quien se le recepciona entrevista técnica a los fines de precisar su testimonio sobre lo acontecido en relación a la tentativa de robo de bronce."
             st.code(ref)
         st.markdown("---")
 
-    # CONTROLES DINÁMICOS
+    # CONTROLES DINÁMICOS DE TESTIGOS
     col_add, col_del = st.columns(2)
     if col_add.button("➕ AGREGAR OTRO TESTIGO"):
         st.session_state.lista_testigos.append(len(st.session_state.lista_testigos) + 1)
@@ -108,26 +112,36 @@ def main():
             st.session_state.lista_testigos.pop()
             st.rerun()
 
-    # CIERRE DE BLOQUE Y EXPORTACIÓN REAL
-    st.subheader("💾 Cierre de Módulo")
+    # --- CIERRE DE BLOQUE Y EXPORTACIÓN SEGURA ---
+    st.subheader("💾 Cierre de Módulo y Descargas")
     cj1, cj2 = st.columns(2)
     
+    # Preparamos los strings de datos antes de generar los botones
+    json_final = json.dumps(datos_acumulados, indent=4)
+    
+    actas_texto_completo = ""
+    for t_id, t_info in datos_acumulados.items():
+        if t_info['declara'] == "SI":
+            actas_texto_completo += generar_texto_acta(t_id, t_info, interviniente, lugar) + "\n\n"
+
     with cj1:
-        json_final = json.dumps(datos_acumulados, indent=4)
-        st.download_button("📥 GENERAR JSON PARA ACTANTE", data=json_final, file_name=f"testigos_{datetime.now().strftime('%d%m%Y')}.json")
+        st.download_button(
+            label="📥 GENERAR JSON PARA ACTANTE",
+            data=json_final,
+            file_name=f"testigos_{datetime.now().strftime('%d%m%Y')}.json",
+            mime="application/json",
+            key="btn_json_final"
+        )
     
     with cj2:
-        # Generamos un archivo de texto que el oficial puede imprimir o guardar como PDF
-        actas_texto = ""
-        for t_id, t_info in datos_acumulados.items():
-            if t_info['declara'] == "SI":
-                actas_texto += generar_texto_acta(t_id, t_info, interviniente, lugar) + "\n\n"
-        
-        if actas_texto:
-            st.download_button("📄 DESCARGAR ACTAS DE ENTREVISTA (TXT/PDF)", 
-                               data=actas_texto, 
-                               file_name=f"entrevistas_testigos_{datetime.now().strftime('%H%M')}.txt",
-                               mime="text/plain")
+        if actas_texto_completo:
+            st.download_button(
+                label="📄 DESCARGAR ACTAS TÉCNICAS (TXT/PDF)",
+                data=actas_texto_completo,
+                file_name=f"actas_testigos_{datetime.now().strftime('%H%M')}.txt",
+                mime="text/plain",
+                key="btn_txt_final"
+            )
         else:
             st.button("📄 DESCARGAR ACTAS (Sin declaraciones)", disabled=True)
 
